@@ -8,6 +8,10 @@ import (
 )
 
 func postgresType(req *plugin.GenerateRequest, col *plugin.Column) string {
+	return postgresTypeWithConfig(req, col, Config{})
+}
+
+func postgresTypeWithConfig(req *plugin.GenerateRequest, col *plugin.Column, conf Config) string {
 	columnType := sdk.DataType(col.Type)
 
 	switch columnType {
@@ -27,7 +31,14 @@ func postgresType(req *plugin.GenerateRequest, col *plugin.Column) string {
 		return "datetime.date"
 	case "pg_catalog.time", "pg_catalog.timetz":
 		return "datetime.time"
-	case "pg_catalog.timestamp", "pg_catalog.timestamptz", "timestamptz":
+	case "pg_catalog.timestamptz", "timestamptz":
+		// For timezone-aware timestamps, use pydantic.AwareDatetime if using Pydantic models
+		if conf.EmitPydanticModels {
+			return "pydantic.AwareDatetime"
+		}
+		return "datetime.datetime"
+	case "pg_catalog.timestamp":
+		// Plain timestamp without timezone
 		return "datetime.datetime"
 	case "interval", "pg_catalog.interval":
 		return "datetime.timedelta"
