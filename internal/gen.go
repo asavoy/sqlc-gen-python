@@ -50,9 +50,12 @@ func (t pyType) Annotation() *pyast.Node {
 }
 
 type Field struct {
-	Name    string
-	Type    pyType
-	Comment string
+	Name         string
+	Type         pyType
+	Comment      string
+	EmbedStruct  *Struct // If non-nil, this field is an embedded struct
+	ColumnOffset int     // Starting column index for this field in the query result
+	ColumnCount  int     // Number of columns this field spans (1 for scalars, N for embedded structs)
 }
 
 type Struct struct {
@@ -105,13 +108,37 @@ func (v QueryValue) RowNode(rowVar string) *pyast.Node {
 	call := &pyast.Call{
 		Func: v.Annotation(),
 	}
-	for i, f := range v.Struct.Fields {
-		call.Keywords = append(call.Keywords, &pyast.Keyword{
-			Arg: f.Name,
-			Value: subscriptNode(
+	for _, f := range v.Struct.Fields {
+		var value *pyast.Node
+		if f.EmbedStruct != nil {
+			// This field is an embedded struct - construct it from multiple columns
+			embedCall := &pyast.Call{
+				Func: typeRefNode("models", f.EmbedStruct.Name),
+			}
+			for i, embedField := range f.EmbedStruct.Fields {
+				embedCall.Keywords = append(embedCall.Keywords, &pyast.Keyword{
+					Arg: embedField.Name,
+					Value: subscriptNode(
+						rowVar,
+						constantInt(f.ColumnOffset+i),
+					),
+				})
+			}
+			value = &pyast.Node{
+				Node: &pyast.Node_Call{
+					Call: embedCall,
+				},
+			}
+		} else {
+			// Regular scalar field
+			value = subscriptNode(
 				rowVar,
-				constantInt(i),
-			),
+				constantInt(f.ColumnOffset),
+			)
+		}
+		call.Keywords = append(call.Keywords, &pyast.Keyword{
+			Arg:   f.Name,
+			Value: value,
 		})
 	}
 	return &pyast.Node{
@@ -343,8 +370,10 @@ func columnsToStruct(req *plugin.GenerateRequest, name string, columns []pyColum
 			fieldName = fmt.Sprintf("%s_%d", fieldName, suffix)
 		}
 		gs.Fields = append(gs.Fields, Field{
-			Name: fieldName,
-			Type: makePyType(req, c.Column),
+			Name:         fieldName,
+			Type:         makePyType(req, c.Column),
+			ColumnOffset: i,
+			ColumnCount:  1,
 		})
 		seen[colName]++
 	}
@@ -429,41 +458,114 @@ func buildQueries(conf Config, req *plugin.GenerateRequest, structs []Struct) ([
 			var gs *Struct
 			var emit bool
 
-			for _, s := range structs {
-				if len(s.Fields) != len(query.Columns) {
-					continue
-				}
-				same := true
-
-				for i, f := range s.Fields {
-					c := query.Columns[i]
-					// HACK: models do not have "models." on their types, so trim that so we can find matches
-					trimmedPyType := makePyType(req, c)
-					trimmedPyType.InnerType = strings.TrimPrefix(trimmedPyType.InnerType, "models.")
-					sameName := f.Name == columnName(c, i)
-					sameType := f.Type == trimmedPyType
-					sameTable := sdk.SameTableName(c.Table, &s.Table, req.Catalog.DefaultSchema)
-					if !sameName || !sameType || !sameTable {
-						same = false
-					}
-				}
-				if same {
-					gs = &s
+			// Check if any columns have EmbedTable set (sqlc.embed)
+			hasEmbeds := false
+			for _, c := range query.Columns {
+				if c.EmbedTable != nil {
+					hasEmbeds = true
 					break
 				}
 			}
 
-			if gs == nil {
-				var columns []pyColumn
-				for i, c := range query.Columns {
-					columns = append(columns, pyColumn{
-						id:     int32(i),
-						Column: c,
-					})
+			if hasEmbeds {
+				// Handle embedded structs
+				gs = &Struct{
+					Name: query.Name + "Row",
 				}
-				gs = columnsToStruct(req, query.Name+"Row", columns)
+				columnOffset := 0
+
+				for _, c := range query.Columns {
+					if c.EmbedTable != nil {
+						// This column represents an embedded table
+						// Find the matching struct for this table
+						var matchedStruct *Struct
+						for _, s := range structs {
+							if sdk.SameTableName(c.EmbedTable, &s.Table, req.Catalog.DefaultSchema) {
+								matchedStruct = &s
+								break
+							}
+						}
+
+						if matchedStruct != nil {
+							// Add embedded struct field
+							gs.Fields = append(gs.Fields, Field{
+								Name:         columnName(c, columnOffset),
+								Type:         pyType{InnerType: "models." + matchedStruct.Name, IsNull: false, IsArray: false},
+								EmbedStruct:  matchedStruct,
+								ColumnOffset: columnOffset,
+								ColumnCount:  len(matchedStruct.Fields),
+							})
+							columnOffset += len(matchedStruct.Fields)
+						} else {
+							// Embedded table not found, treat as Any
+							gs.Fields = append(gs.Fields, Field{
+								Name:         columnName(c, columnOffset),
+								Type:         pyType{InnerType: "Any", IsNull: true, IsArray: false},
+								ColumnOffset: columnOffset,
+								ColumnCount:  1,
+							})
+							columnOffset++
+						}
+					} else {
+						// Regular column
+						gs.Fields = append(gs.Fields, Field{
+							Name:         columnName(c, columnOffset),
+							Type:         makePyType(req, c),
+							ColumnOffset: columnOffset,
+							ColumnCount:  1,
+						})
+						columnOffset++
+					}
+				}
 				emit = true
+			} else {
+				// Try to match all columns to a single existing struct (fast path)
+				for _, s := range structs {
+					if len(s.Fields) != len(query.Columns) {
+						continue
+					}
+					same := true
+
+					for i, f := range s.Fields {
+						c := query.Columns[i]
+						// HACK: models do not have "models." on their types, so trim that so we can find matches
+						trimmedPyType := makePyType(req, c)
+						trimmedPyType.InnerType = strings.TrimPrefix(trimmedPyType.InnerType, "models.")
+						sameName := f.Name == columnName(c, i)
+						sameType := f.Type == trimmedPyType
+						sameTable := sdk.SameTableName(c.Table, &s.Table, req.Catalog.DefaultSchema)
+						if !sameName || !sameType || !sameTable {
+							same = false
+						}
+					}
+					if same {
+						// Create a copy of the struct with ColumnOffset set for each field
+						gsCopy := s
+						gsCopy.Fields = make([]Field, len(s.Fields))
+						copy(gsCopy.Fields, s.Fields)
+						for i := range gsCopy.Fields {
+							gsCopy.Fields[i].ColumnOffset = i
+							gsCopy.Fields[i].ColumnCount = 1
+						}
+						gs = &gsCopy
+						break
+					}
+				}
+
+				// Final fallback: create a flat struct with all columns
+				if gs == nil {
+					var columns []pyColumn
+					for i, c := range query.Columns {
+						columns = append(columns, pyColumn{
+							id:     int32(i),
+							Column: c,
+						})
+					}
+					gs = columnsToStruct(req, query.Name+"Row", columns)
+					emit = true
+				}
 			}
+
 			gq.Ret = QueryValue{
 				Emit:   emit,
 				Name:   "i",
@@ -602,11 +704,18 @@ func pydanticNode(name string) *pyast.ClassDef {
 }
 
 func fieldNode(f Field) *pyast.Node {
+	var annotation *pyast.Node
+	if f.EmbedStruct != nil {
+		// For embedded structs, use a proper type reference
+		annotation = typeRefNode("models", f.EmbedStruct.Name)
+	} else {
+		annotation = f.Type.Annotation()
+	}
 	return &pyast.Node{
 		Node: &pyast.Node_AnnAssign{
 			AnnAssign: &pyast.AnnAssign{
 				Target:     &pyast.Name{Id: f.Name},
-				Annotation: f.Type.Annotation(),
+				Annotation: annotation,
 				Comment:    f.Comment,
 			},
 		},
