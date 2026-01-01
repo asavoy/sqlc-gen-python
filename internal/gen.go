@@ -41,7 +41,7 @@ type pyType struct {
 func (t pyType) Annotation() *pyast.Node {
 	ann := poet.Name(t.InnerType)
 	if t.IsArray {
-		ann = subscriptNode("List", ann)
+		ann = subscriptNode("list", ann)
 	}
 	if t.IsNull {
 		return poet.BinOp(ann, poet.BitOr(), poet.Constant(nil))
@@ -905,6 +905,18 @@ func querierClassDef() *pyast.ClassDef {
 		Name: "Querier",
 		Body: []*pyast.Node{
 			{
+				Node: &pyast.Node_AnnAssign{
+					AnnAssign: &pyast.AnnAssign{
+						Target: &pyast.Name{Id: "_conn"},
+						Annotation: poet.BinOp(
+							typeRefNode("sqlalchemy", "engine", "Connection"),
+							poet.BitOr(),
+							typeRefNode("sqlalchemy", "orm", "Session"),
+						),
+					},
+				},
+			},
+			{
 				Node: &pyast.Node_FunctionDef{
 					FunctionDef: &pyast.FunctionDef{
 						Name: "__init__",
@@ -946,6 +958,18 @@ func asyncQuerierClassDef() *pyast.ClassDef {
 	return &pyast.ClassDef{
 		Name: "AsyncQuerier",
 		Body: []*pyast.Node{
+			{
+				Node: &pyast.Node_AnnAssign{
+					AnnAssign: &pyast.AnnAssign{
+						Target: &pyast.Name{Id: "_conn"},
+						Annotation: poet.BinOp(
+							typeRefNode("sqlalchemy", "ext", "asyncio", "AsyncConnection"),
+							poet.BitOr(),
+							typeRefNode("sqlalchemy", "ext", "asyncio", "AsyncSession"),
+						),
+					},
+				},
+			},
 			{
 				Node: &pyast.Node_FunctionDef{
 					FunctionDef: &pyast.FunctionDef{
@@ -1111,7 +1135,7 @@ func buildQueryTree(ctx *pyTmplCtx, i *importer, source string) *pyast.Node {
 				)
 				f.Returns = subscriptNode("Iterator", q.Ret.Annotation())
 			case ":exec":
-				f.Body = append(f.Body, exec)
+				f.Body = append(f.Body, assignNode("_", exec))
 				f.Returns = poet.Constant(nil)
 			case ":execrows":
 				f.Body = append(f.Body,
@@ -1204,7 +1228,7 @@ func buildQueryTree(ctx *pyTmplCtx, i *importer, source string) *pyast.Node {
 				)
 				f.Returns = subscriptNode("AsyncIterator", q.Ret.Annotation())
 			case ":exec":
-				f.Body = append(f.Body, poet.Await(exec))
+				f.Body = append(f.Body, assignNode("_", poet.Await(exec)))
 				f.Returns = poet.Constant(nil)
 			case ":execrows":
 				f.Body = append(f.Body,

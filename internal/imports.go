@@ -34,9 +34,6 @@ type importer struct {
 
 func structUses(name string, s Struct) bool {
 	for _, f := range s.Fields {
-		if name == "typing.List" && f.Type.IsArray {
-			return true
-		}
 		if f.Type.InnerType == name {
 			return true
 		}
@@ -46,9 +43,6 @@ func structUses(name string, s Struct) bool {
 
 func queryValueUses(name string, qv QueryValue) bool {
 	if !qv.isEmpty() {
-		if name == "typing.List" && qv.Typ.IsArray {
-			return true
-		}
 		if qv.IsStruct() && qv.EmitStruct() {
 			if structUses(name, *qv.Struct) {
 				return true
@@ -175,10 +169,10 @@ func (i *importer) queryImportSpecs(fileName string) (map[string]importSpec, map
 		}
 		if q.Cmd == ":many" {
 			if i.C.EmitSyncQuerier {
-				std["typing.Iterator"] = importSpec{Module: "typing", Name: "Iterator"}
+				std["collections.abc.Iterator"] = importSpec{Module: "collections.abc", Name: "Iterator"}
 			}
 			if i.C.EmitAsyncQuerier {
-				std["typing.AsyncIterator"] = importSpec{Module: "typing", Name: "AsyncIterator"}
+				std["collections.abc.AsyncIterator"] = importSpec{Module: "collections.abc", Name: "AsyncIterator"}
 			}
 		}
 		queryValueModelImports(q.Ret)
@@ -350,9 +344,6 @@ func stdImports(uses func(name string) bool) map[string]importSpec {
 	}
 	if uses("uuid.UUID") {
 		std["uuid"] = importSpec{Module: "uuid"}
-	}
-	if uses("typing.List") {
-		std["typing.List"] = importSpec{Module: "typing", Name: "List"}
 	}
 	if uses("Any") {
 		std["typing.Any"] = importSpec{Module: "typing", Name: "Any"}
