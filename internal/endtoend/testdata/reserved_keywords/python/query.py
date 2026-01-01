@@ -31,6 +31,8 @@ SELECT id, class, import, def, pass, yield FROM items WHERE class = :p1
 
 
 class Querier:
+    _conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session
+
     def __init__(self, conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session):
         self._conn = conn
 

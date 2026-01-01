@@ -2,8 +2,8 @@
 # versions:
 #   sqlc v1.30.0
 # source: query.sql
+from collections.abc import Iterator
 import pydantic
-from typing import Iterator
 
 import sqlalchemy
 import sqlalchemy.orm
@@ -42,6 +42,8 @@ class ListBooksWithAuthorsRow(pydantic.BaseModel):
 
 
 class Querier:
+    _conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session
+
     def __init__(self, conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session):
         self._conn = conn
 

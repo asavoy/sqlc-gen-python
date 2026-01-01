@@ -2,7 +2,7 @@
 # versions:
 #   sqlc v1.30.0
 # source: query.sql
-from typing import Iterator
+from collections.abc import Iterator
 
 import sqlalchemy
 import sqlalchemy.orm
@@ -28,6 +28,8 @@ SELECT id, name, email, age, created_at FROM users ORDER BY id
 
 
 class Querier:
+    _conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session
+
     def __init__(self, conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session):
         self._conn = conn
 

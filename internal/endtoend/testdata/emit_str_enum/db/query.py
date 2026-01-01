@@ -2,7 +2,7 @@
 # versions:
 #   sqlc v1.30.0
 # source: query.sql
-from typing import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator
 
 import sqlalchemy
 import sqlalchemy.ext.asyncio
@@ -39,6 +39,8 @@ ORDER BY title
 
 
 class Querier:
+    _conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session
+
     def __init__(self, conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session):
         self._conn = conn
 
@@ -53,7 +55,7 @@ class Querier:
         )
 
     def delete_book(self, *, id: int) -> None:
-        self._conn.execute(sqlalchemy.text(DELETE_BOOK), {"p1": id})
+        _ = self._conn.execute(sqlalchemy.text(DELETE_BOOK), {"p1": id})
 
     def get_book(self, *, id: int) -> models.Book | None:
         row = self._conn.execute(sqlalchemy.text(GET_BOOK), {"p1": id}).first()
@@ -76,6 +78,8 @@ class Querier:
 
 
 class AsyncQuerier:
+    _conn: sqlalchemy.ext.asyncio.AsyncConnection | sqlalchemy.ext.asyncio.AsyncSession
+
     def __init__(self, conn: sqlalchemy.ext.asyncio.AsyncConnection | sqlalchemy.ext.asyncio.AsyncSession):
         self._conn = conn
 
@@ -90,7 +94,7 @@ class AsyncQuerier:
         )
 
     async def delete_book(self, *, id: int) -> None:
-        await self._conn.execute(sqlalchemy.text(DELETE_BOOK), {"p1": id})
+        _ = await self._conn.execute(sqlalchemy.text(DELETE_BOOK), {"p1": id})
 
     async def get_book(self, *, id: int) -> models.Book | None:
         row = (await self._conn.execute(sqlalchemy.text(GET_BOOK), {"p1": id})).first()

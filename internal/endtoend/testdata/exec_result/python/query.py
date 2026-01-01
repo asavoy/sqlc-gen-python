@@ -15,6 +15,8 @@ DELETE FROM bar WHERE id = :p1
 
 
 class Querier:
+    _conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session
+
     def __init__(self, conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session):
         self._conn = conn
 
@@ -23,6 +25,8 @@ class Querier:
 
 
 class AsyncQuerier:
+    _conn: sqlalchemy.ext.asyncio.AsyncConnection | sqlalchemy.ext.asyncio.AsyncSession
+
     def __init__(self, conn: sqlalchemy.ext.asyncio.AsyncConnection | sqlalchemy.ext.asyncio.AsyncSession):
         self._conn = conn
 

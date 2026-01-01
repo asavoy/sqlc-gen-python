@@ -25,6 +25,8 @@ SELECT id, metadata, settings, author_id FROM articles WHERE id = :p1
 
 
 class Querier:
+    _conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session
+
     def __init__(self, conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session):
         self._conn = conn
 

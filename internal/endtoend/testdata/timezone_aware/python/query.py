@@ -23,6 +23,8 @@ SELECT id, name, created_at, updated_at, event_date FROM events WHERE id = :p1
 
 
 class Querier:
+    _conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session
+
     def __init__(self, conn: sqlalchemy.engine.Connection | sqlalchemy.orm.Session):
         self._conn = conn
 
